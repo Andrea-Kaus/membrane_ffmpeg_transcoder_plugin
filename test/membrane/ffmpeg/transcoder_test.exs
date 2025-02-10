@@ -134,7 +134,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     assert stream.height == height
 
     # Instead of matching directly we use this for baseline profile, which in
-    # ffmpeg results in "Contrained Baseline".
+    # ffmpeg results in "Constrained Baseline".
     expected_profile = opts[:profile] |> to_string |> String.capitalize()
     assert String.contains?(stream.profile, expected_profile)
     assert stream.codec_name == "h264"
