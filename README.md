@@ -5,7 +5,6 @@ Membrane plugin to transcode video into different qualities using FFmpeg and Exi
 
 ## Requirements
 - ffmpeg
-- named pipes (mkfifo)
 
 ## Usage
 Put `Membrane.FFmpeg.Transcoder` somewhere in your pipeline.
@@ -16,6 +15,7 @@ Put `Membrane.FFmpeg.Transcoder` somewhere in your pipeline.
 - simple API: attach an output with options, that's it (check the test)
 - constrains the bitrate
 - by adding a Membrane.h264.Parser in the middle, it is compatible with Membrane.MP4.Muxer.CMAF and Membrane.MP4.Muxer.ISOM
+- transcodes to AAC and H264
 
 ## Copyright and License
 Copyright 2024, [KIM Keep In Mind GmbH](https://www.keepinmind.info/)
