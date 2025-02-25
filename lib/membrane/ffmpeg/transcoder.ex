@@ -67,6 +67,10 @@ defmodule Membrane.FFmpeg.Transcoder do
       b_frames: [
         spec: pos_integer(),
         default: 3
+      ],
+      level: [
+        spec: String.t(),
+        default: "3.1"
       ]
     ]
   )

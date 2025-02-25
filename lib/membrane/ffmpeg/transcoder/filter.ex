@@ -79,6 +79,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
             -c:v:#{index}
             libx264
             -preset:v:#{index} #{opts.preset}
+            -level:v:#{index} #{opts.level}
             -crf:v:#{index} #{opts.crf}
             -tune:v:#{index} #{opts.tune}
             -profile:v:#{index} #{opts.profile}
