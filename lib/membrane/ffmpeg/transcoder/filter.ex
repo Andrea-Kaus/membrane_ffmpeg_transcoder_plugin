@@ -50,29 +50,52 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       state.outputs.video
       |> Enum.with_index(0)
 
+    video_outputs_no_copy = Enum.reject(video_outputs, fn {{_sid, opts}, _idx} -> opts.copy end)
+
     audio_outputs =
       state.outputs.audio
       |> Enum.with_index(0)
 
-    filtergraph =
-      [
-        "[0:v]split=#{length(video_outputs)}#{Enum.map(video_outputs, fn {_output, index} -> "[v#{index}]" end)}",
-        Enum.map(video_outputs, fn {{_sid, opts}, index} ->
-          {w, h} = opts.resolution
+    filtercomplex =
+      if length(video_outputs_no_copy) > 0 do
+        video_outputs = video_outputs_no_copy
 
-          "[v#{index}]scale=#{w}:#{h},fps=#{opts.fps}[v#{index}out]"
-        end)
-      ]
-      |> List.flatten()
-      |> Enum.join(";")
+        filtergraph =
+          [
+            "[0:v]split=#{length(video_outputs)}#{Enum.map(video_outputs, fn {_output, index} -> "[v#{index}]" end)}",
+            Enum.map(video_outputs, fn {{_sid, opts}, index} ->
+              {w, h} = opts.resolution
+
+              "[v#{index}]scale=#{w}:#{h},fps=#{opts.fps}[v#{index}out]"
+            end)
+          ]
+          |> List.flatten()
+          |> Enum.join(";")
+
+        ~w(-filter_complex #{filtergraph})
+      else
+        []
+      end
 
     mappings =
-      Enum.flat_map(video_outputs, fn {_opts, index} -> ~w(-map [v#{index}out]) end) ++
+      Enum.flat_map(video_outputs, fn {{_sid, opts}, index} ->
+        if opts.copy do
+          ~w(-map #{index}:v )
+        else
+          ~w(-map [v#{index}out])
+        end
+      end) ++
         Enum.flat_map(audio_outputs, fn _ -> ~w(-map 0:a) end)
 
     vcodec =
       Enum.flat_map(video_outputs, fn {{_sid, opts}, index} ->
-        ~w(
+        if opts.copy do
+          ~w(
+            -c:v:#{index}
+            copy
+            )
+        else
+          ~w(
             -c:v:#{index}
             libx264
             -preset:v:#{index} #{opts.preset}
@@ -88,13 +111,16 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
             -maxrate:v:#{index} #{opts.bitrate}
             -bufsize:v:#{index} #{opts.bitrate * 2}
           )
+        end
       end)
 
     acodec =
       Enum.flat_map(audio_outputs, fn {{_sid, opts}, index} ->
-        ~w(
-        -c:a:#{index} aac -b:a:#{index} #{opts.bitrate} -ar:a:#{index} #{opts.sample_rate} \
-      )
+        if opts.copy do
+          ~w( -c:a:#{index} copy )
+        else
+          ~w( -c:a:#{index} aac -b:a:#{index} #{opts.bitrate} -ar:a:#{index} #{opts.sample_rate} )
+        end
       end)
 
     sid_mapping =
@@ -116,8 +142,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
           ffmpeg -y -hide_banner
           -loglevel error
           -i -
-          -filter_complex #{filtergraph}
-        ) ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer
+        ) ++ filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer
 
     Membrane.Logger.debug("FFmpeg: #{Enum.join(command, " ")}")
     {:ok, ffmpeg} = Exile.Process.start_link(command)
@@ -136,8 +161,13 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   @impl true
   def handle_buffer(:input, buffer, _ctx, state) do
-    :ok = Exile.Process.write(state.ffmpeg, buffer.payload)
-    {[], state}
+    case Exile.Process.write(state.ffmpeg, buffer.payload) do
+      :ok ->
+        {[], state}
+
+      {:error, reason} ->
+        raise FFmpegError, "unable to write buffer: #{inspect(reason)}"
+    end
   end
 
   @impl true

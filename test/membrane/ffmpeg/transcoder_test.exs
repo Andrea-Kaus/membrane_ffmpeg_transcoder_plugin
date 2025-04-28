@@ -1,5 +1,5 @@
 defmodule Membrane.FFmpeg.TranscoderTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   import Membrane.ChildrenSpec
   require Membrane.Pad
@@ -68,6 +68,30 @@ defmodule Membrane.FFmpeg.TranscoderTest do
   ]
 
   @tag :tmp_dir
+  test "copy", %{tmp_dir: tmp_dir} do
+    spec = [
+      child(:source, %Membrane.File.Source{
+        location: @input_path
+      })
+      |> child(:transcoder, Membrane.FFmpeg.Transcoder)
+      |> via_out(:video, options: [copy: true])
+      |> child({:sink, :video}, %Membrane.File.Sink{location: "#{tmp_dir}/video.h264"}),
+      get_child(:transcoder)
+      |> via_out(:audio, options: [copy: true])
+      |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
+      # We're also adding a non-copy output to ensure copy and non-copy can live together.
+      get_child(:transcoder)
+      |> via_out(:video, options: @video_outputs[:sd])
+      |> child({:sink, :sd}, %Membrane.File.Sink{location: "#{tmp_dir}/sd.h264"})
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :sd}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
+  end
+
+  @tag :tmp_dir
   test "transcodes an input video into multiple qualities", %{tmp_dir: tmp_dir} do
     spec =
       [
@@ -127,21 +151,21 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     props =
       Exile.stream!(~w(ffprobe -show_streams -of json #{path}), stderr: :disable)
       |> Enum.into(<<>>)
-      |> Jason.decode!(keys: :atoms)
+      |> JSON.decode!()
 
-    assert [stream] = props.streams
+    assert [stream] = props["streams"]
     {_width, height} = opts[:resolution]
-    assert stream.height == height
+    assert stream["height"] == height
 
     # Instead of matching directly we use this for baseline profile, which in
     # ffmpeg results in "Constrained Baseline".
     expected_profile = opts[:profile] |> to_string |> String.capitalize()
-    assert String.contains?(stream.profile, expected_profile)
-    assert stream.codec_name == "h264"
-    assert String.to_integer(stream.bit_rate) <= opts[:bitrate]
+    assert String.contains?(stream["profile"], expected_profile)
+    assert stream["codec_name"] == "h264"
+    assert String.to_integer(stream["bit_rate"]) <= opts[:bitrate]
 
     [num, den] =
-      stream.avg_frame_rate
+      stream["avg_frame_rate"]
       |> String.split("/")
       |> Enum.map(&String.to_integer/1)
 
@@ -153,11 +177,11 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     props =
       Exile.stream!(~w(ffprobe -show_streams -of json #{path}), stderr: :disable)
       |> Enum.into(<<>>)
-      |> Jason.decode!(keys: :atoms)
+      |> JSON.decode!()
 
-    assert [stream] = props.streams
-    assert stream.codec_name == "aac"
-    assert String.to_integer(stream.bit_rate) <= opts[:bitrate]
-    assert String.to_integer(stream.sample_rate) == opts[:sample_rate]
+    assert [stream] = props["streams"]
+    assert stream["codec_name"] == "aac"
+    assert String.to_integer(stream["bit_rate"]) <= opts[:bitrate]
+    assert String.to_integer(stream["sample_rate"]) == opts[:sample_rate]
   end
 end

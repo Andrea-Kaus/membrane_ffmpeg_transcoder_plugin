@@ -23,9 +23,15 @@ defmodule Membrane.FFmpeg.Transcoder do
     accepted_format: Membrane.RemoteStream,
     availability: :on_request,
     options: [
+      copy: [
+        spec: boolean(),
+        description: "If enabled, the stream will not be re-encoded",
+        default: false
+      ],
       bitrate: [
         spec: pos_integer(),
-        description: "Maximum bitrate"
+        description: "Maximum bitrate",
+        default: 128_000
       ],
       sample_rate: [
         spec: pos_integer(),
@@ -38,6 +44,11 @@ defmodule Membrane.FFmpeg.Transcoder do
     accepted_format: Membrane.RemoteStream,
     availability: :on_request,
     options: [
+      copy: [
+        spec: boolean(),
+        description: "If enabled, the stream will not be re-encoded",
+        default: false
+      ],
       resolution: [
         spec: {integer(), integer()},
         description: "Resolution of the given output.",
