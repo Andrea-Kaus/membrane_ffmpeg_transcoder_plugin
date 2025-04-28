@@ -1,4 +1,12 @@
 defmodule Membrane.FFmpeg.Transcoder do
+  @moduledoc """
+  Tasks as input an unparsed stream and provides on each pad an unparsed, transcoded stream
+  with the desired properties.
+
+  Input might be MPEG-TS or FLV but other streaming containers might work as well. If the
+  input stream contains more than 1 video and 1 audio stream, which one will be picked is
+  undefined behaviour.
+  """
   use Membrane.Bin
 
   require Membrane.Logger
@@ -8,9 +16,7 @@ defmodule Membrane.FFmpeg.Transcoder do
   @mpeg_ts_sid_index_offset 256
 
   def_input_pad(:input,
-    accepted_format:
-      %Membrane.RemoteStream{content_format: content_format}
-      when content_format in [nil, Membrane.FLV]
+    accepted_format: Membrane.RemoteStream
   )
 
   def_output_pad(:audio,
