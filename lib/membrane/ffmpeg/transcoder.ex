@@ -40,19 +40,22 @@ defmodule Membrane.FFmpeg.Transcoder do
     options: [
       resolution: [
         spec: {integer(), integer()},
-        description: "Resolution of the given output."
+        description: "Resolution of the given output.",
+        default: {-2, 720}
       ],
       bitrate: [
         spec: pos_integer(),
-        description: "Maximum bitrate"
+        description: "Maximum bitrate",
+        default: 3_300_000
       ],
       profile: [
         spec: atom(),
-        description: "H264 Profile"
+        description: "H264 Profile",
+        default: :high
       ],
       crf: [
         spec: pos_integer(),
-        default: 29
+        default: 26
       ],
       preset: [
         spec: atom(),
