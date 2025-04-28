@@ -26,8 +26,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   @impl true
   def handle_init(_ctx, _opts) do
-    {:ok, pid} = Task.Supervisor.start_link()
-    {[], %{ffmpeg: nil, read_ref: nil, outputs: %{video: [], audio: []}, task_supervisor: pid}}
+    {[], %{ffmpeg: nil, read_ref: nil, outputs: %{video: [], audio: []}}}
   end
 
   @impl true
@@ -128,9 +127,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     parent = self()
 
     task =
-      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+      Task.Supervisor.async_nolink(Membrane.FFmpeg.Transcoder.TaskSupervisor, fn ->
         :ok = Exile.Process.change_pipe_owner(ffmpeg, :stdout, self())
-        read_loop(ffmpeg, parent)
+        ref = Process.monitor(parent)
+        read_loop(ffmpeg, parent, ref)
       end)
 
     {[], %{state | ffmpeg: ffmpeg, read_ref: task.ref}}
@@ -169,17 +169,20 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     raise FFmpegError, reason
   end
 
-  defp read_loop(p, parent) do
+  defp read_loop(p, parent, monitor_ref) do
     case Exile.Process.read(p) do
       {:ok, data} ->
         send(parent, {:exile, {:data, data}})
-        read_loop(p, parent)
+        read_loop(p, parent, monitor_ref)
 
       :eof ->
         :eof
 
       {:error, any} ->
         {:error, any}
+
+      {:DOWN, ^monitor_ref, :process, _object, reason} ->
+        {:error, reason}
     end
   end
 end
