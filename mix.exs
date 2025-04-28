@@ -7,7 +7,7 @@ defmodule MembraneFFmpegTranscoder.MixProject do
     [
       app: :membrane_ffmpeg_transcoder_plugin,
       version: "1.1.9",
-      elixir: "~> 1.15",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       source_url: @github_url,
       name: "Membrane FFmpeg Transcoder Plugin",
@@ -54,7 +54,6 @@ defmodule MembraneFFmpegTranscoder.MixProject do
       {:membrane_h26x_plugin, ">= 0.0.0", only: :test},
       {:membrane_mp4_plugin, ">= 0.0.0", only: :test},
       {:membrane_aac_plugin, ">= 0.0.0", only: :test},
-      {:jason, ">= 0.0.0", only: :test},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
