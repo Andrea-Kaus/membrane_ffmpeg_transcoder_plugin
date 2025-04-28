@@ -35,7 +35,8 @@ defmodule MembraneFFmpegTranscoder.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger],
+      mod: {Membrane.FFmpeg.Transcoder.Application, []}
     ]
   end
 
@@ -43,7 +44,6 @@ defmodule MembraneFFmpegTranscoder.MixProject do
   defp deps do
     [
       {:membrane_core, "~> 1.1"},
-      {:membrane_h264_format, "~> 0.6.0"},
       {:membrane_funnel_plugin, "~> 0.9.0"},
       {:membrane_mpeg_ts_plugin, "~> 1.0"},
       {:membrane_flv_plugin, "~> 0.12.0"},
