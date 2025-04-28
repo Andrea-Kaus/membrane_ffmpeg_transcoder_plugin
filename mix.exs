@@ -28,7 +28,7 @@ defmodule MembraneFFmpegTranscoder.MixProject do
 
   defp description do
     """
-    Membrane plugin to transcode video into different qualities using FFmpeg and Exile.
+    Membrane plugin to transcode audio and video into different qualities using FFmpeg and Exile.
     """
   end
 
@@ -44,9 +44,7 @@ defmodule MembraneFFmpegTranscoder.MixProject do
   defp deps do
     [
       {:membrane_core, "~> 1.1"},
-      {:membrane_funnel_plugin, "~> 0.9.0"},
       {:membrane_mpeg_ts_plugin, "~> 1.0"},
-      {:membrane_flv_plugin, "~> 0.12.0"},
 
       #
       {:exile, "~> 0.11.0"},

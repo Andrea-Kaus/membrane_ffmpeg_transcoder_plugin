@@ -7,7 +7,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
 
   @crf 26
 
-  @input_path "test/fixtures/av-sync-test.flv"
+  @input_path "test/data/av-sync-test.ts"
 
   @video_outputs [
     fhd: [
