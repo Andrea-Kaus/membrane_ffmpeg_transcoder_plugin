@@ -27,3 +27,4 @@ membrane_ffmpeg_transcoder-*.tar
 
 /examples/output
 output
+.elixir_ls
