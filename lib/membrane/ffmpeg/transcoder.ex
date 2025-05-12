@@ -8,6 +8,7 @@ defmodule Membrane.FFmpeg.Transcoder do
   undefined behaviour.
   """
   use Membrane.Bin
+  alias Membrane.FFmpeg.Transcoder
 
   require Membrane.Logger
 
@@ -99,7 +100,7 @@ defmodule Membrane.FFmpeg.Transcoder do
   def handle_init(_ctx, _opts) do
     spec = [
       bin_input()
-      |> child(:transcoder, Membrane.FFmpeg.Transcoder.Filter)
+      |> child(:transcoder, Transcoder.Filter)
       |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
     ]
 
@@ -118,9 +119,9 @@ defmodule Membrane.FFmpeg.Transcoder do
 
     spec = [
       # Pad needs to be attached straight away. We use a funnel to allow the
-      # playlist to go to playing state, su we can let the demuxer find the pmt
+      # playlist to go to playing state, so we can let the demuxer find the pmt
       # table and connect the everything.
-      child({:funnel, sid}, Membrane.Funnel)
+      child({:funnel, sid}, Transcoder.Adapter)
       |> bin_output(pad)
     ]
 
@@ -145,8 +146,8 @@ defmodule Membrane.FFmpeg.Transcoder do
     # We expect a stream in the PMT for each pad attached.
     actions =
       state.sid_to_pad
-      |> Enum.map(fn {sid, _pad} ->
-        _info = Map.fetch!(streams, sid)
+      |> Enum.flat_map(fn {sid, _pad} ->
+        info = Map.fetch!(streams, sid)
 
         spec = [
           get_child(:demuxer)
@@ -154,7 +155,11 @@ defmodule Membrane.FFmpeg.Transcoder do
           |> get_child({:funnel, sid})
         ]
 
-        {:spec, spec}
+        [
+          {:notify_child,
+           {{:funnel, sid}, {:stream_format, %Membrane.RemoteStream{content_format: info}}}},
+          {:spec, spec}
+        ]
       end)
 
     {actions, state}
