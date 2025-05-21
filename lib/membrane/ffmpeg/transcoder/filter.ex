@@ -3,6 +3,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   Internal module. Outputs MPEG-TS as an unparsed remote stream.
   """
   use Membrane.Filter
+  require Membrane.Logger
 
   defmodule FFmpegError do
     defexception [:message]
@@ -144,14 +145,15 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
           -i -
         ) ++ filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer
 
-    Membrane.Logger.debug("FFmpeg: #{Enum.join(command, " ")}")
-    {:ok, ffmpeg} = Exile.Process.start_link(command)
+    Membrane.Logger.debug("ffmpeg[transcoder]: #{Enum.join(command, " ")}")
+    {:ok, ffmpeg} = Exile.Process.start_link(command, stderr: :consume)
 
     parent = self()
 
     task =
       Task.Supervisor.async_nolink(Membrane.FFmpeg.Transcoder.TaskSupervisor, fn ->
         :ok = Exile.Process.change_pipe_owner(ffmpeg, :stdout, self())
+        :ok = Exile.Process.change_pipe_owner(ffmpeg, :stderr, self())
         ref = Process.monitor(parent)
         read_loop(ffmpeg, parent, ref)
       end)
@@ -179,8 +181,18 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   @impl true
-  def handle_info({:exile, {:data, payload}}, _ctx, state) do
+  def handle_info({:exile, {:data, {:stdout, payload}}}, _ctx, state) do
     {[buffer: {:output, %Membrane.Buffer{payload: payload}}], state}
+  end
+
+  def handle_info({:exile, {:data, {:stderr, payload}}}, _ctx, state) do
+    payload
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(fn x -> x != "" end)
+    |> Enum.each(fn x -> Membrane.Logger.debug("ffmpeg[transcoder] #{x}") end)
+
+    {[], state}
   end
 
   def handle_info({ref, :eof}, _ctx, state = %{read_ref: ref}) do
@@ -198,7 +210,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   defp read_loop(p, parent, monitor_ref) do
-    case Exile.Process.read(p) do
+    case Exile.Process.read_any(p) do
       {:ok, data} ->
         send(parent, {:exile, {:data, data}})
         read_loop(p, parent, monitor_ref)
