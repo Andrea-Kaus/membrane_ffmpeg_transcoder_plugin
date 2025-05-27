@@ -145,7 +145,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
           -i -
         ) ++ filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer
 
-    Membrane.Logger.debug("ffmpeg[transcoder]: #{Enum.join(command, " ")}")
+    Membrane.Logger.info("ffmpeg[transcoder]: #{Enum.join(command, " ")}")
     {:ok, ffmpeg} = Exile.Process.start_link(command, stderr: :consume)
 
     parent = self()
