@@ -9,8 +9,12 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     defexception [:message]
 
     @impl true
-    def exception(value) do
-      %FFmpegError{message: "FFmpeg error: #{inspect(value)}"}
+    def exception({:error, error}) do
+      %FFmpegError{message: inspect(error)}
+    end
+
+    def exception(other) do
+      %FFmpegError{message: inspect(other)}
     end
   end
 
@@ -176,7 +180,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   def handle_end_of_stream(:input, _ctx, state) do
     # We're not the owners of stdout, so ffmpeg will have its
     # chance to deliver all its data anyway.
-    {:ok, 0} = Exile.Process.await_exit(state.ffmpeg, 30_000)
+    :ok = Exile.Process.close_stdin(state.ffmpeg)
     {[], state}
   end
 
@@ -195,18 +199,25 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     {[], state}
   end
 
-  def handle_info({ref, :eof}, _ctx, state = %{read_ref: ref}) do
-    # Avoid receiving the DOWN message.
-    Process.demonitor(ref, [:flush])
-    {[end_of_stream: :output], state}
+  def handle_info({ref, _resp}, _ctx, state = %{read_ref: ref}) do
+    {[], state}
   end
 
-  def handle_info({ref, {:error, any}}, _ctx, %{read_ref: ref}) do
-    raise FFmpegError, any
+  def handle_info({:DOWN, ref, :process, _pid, :normal}, _ctx, state = %{read_ref: ref}) do
+    {:ok, _status} = Exile.Process.await_exit(state.ffmpeg)
+    {[end_of_stream: :output], clear(state)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{read_ref: ref}) do
-    raise FFmpegError, reason
+  def handle_info({:DOWN, ref, :process, _pid, {reason, _stacktrace}}, _ctx, %{read_ref: ref}) do
+    raise reason
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, other}, _ctx, %{read_ref: ref}) do
+    raise FFmpegError, other
+  end
+
+  def handle_info(_, _ctx, state) do
+    {[], state}
   end
 
   defp read_loop(p, parent, monitor_ref) do
@@ -216,13 +227,19 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         read_loop(p, parent, monitor_ref)
 
       :eof ->
-        :eof
+        :ok
 
-      {:error, any} ->
-        {:error, any}
+      {:error, reason} ->
+        raise FFmpegError, reason
 
       {:DOWN, ^monitor_ref, :process, _object, reason} ->
-        {:error, reason}
+        raise FFmpegError, reason
     end
+  end
+
+  defp clear(state) do
+    state
+    |> put_in([:read_ref], nil)
+    |> put_in([:ffmpeg], nil)
   end
 end
