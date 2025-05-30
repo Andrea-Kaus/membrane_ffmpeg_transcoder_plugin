@@ -194,7 +194,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     |> String.split("\n")
     |> Enum.map(&String.trim/1)
     |> Enum.filter(fn x -> x != "" end)
-    |> Enum.each(fn x -> Membrane.Logger.debug("ffmpeg[transcoder] #{x}") end)
+    |> Enum.each(fn x -> Membrane.Logger.warning("ffmpeg[transcoder]: #{x}") end)
 
     {[], state}
   end
@@ -204,7 +204,8 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, :normal}, _ctx, state = %{read_ref: ref}) do
-    {:ok, _status} = Exile.Process.await_exit(state.ffmpeg)
+    {:ok, status} = Exile.Process.await_exit(state.ffmpeg)
+    Membrane.Logger.info("ffmpeg[transcoder]: exited with status: #{status}")
     {[end_of_stream: :output], clear(state)}
   end
 
