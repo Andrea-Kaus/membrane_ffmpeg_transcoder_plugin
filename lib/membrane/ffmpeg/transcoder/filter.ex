@@ -85,7 +85,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     mappings =
       Enum.flat_map(video_outputs, fn {{_sid, opts}, index} ->
         if opts.copy do
-          ~w(-map #{index}:v )
+          ~w(-map 0:v)
         else
           ~w(-map [v#{index}out])
         end
