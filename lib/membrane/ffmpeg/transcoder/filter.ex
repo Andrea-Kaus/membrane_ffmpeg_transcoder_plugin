@@ -100,9 +100,11 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
             copy
             )
         else
+          # The +cgop flag is required for HLS as it will produce independent GOPs.
           ~w(
             -c:v:#{index}
             libx264
+            -flags +cgop
             -preset:v:#{index} #{opts.preset}
             -level:v:#{index} #{opts.level}
             -crf:v:#{index} #{opts.crf}
