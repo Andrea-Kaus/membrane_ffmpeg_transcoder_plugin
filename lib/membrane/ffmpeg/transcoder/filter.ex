@@ -126,7 +126,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         if opts.copy do
           ~w( -c:a:#{index} copy )
         else
-          ~w( -c:a:#{index} aac -b:a:#{index} #{opts.bitrate} -ar:a:#{index} #{opts.sample_rate} )
+          ~w( -c:a:#{index} aac -b:a:#{index} #{opts.bitrate} -ac:a:#{index} #{opts.channels} -ar:a:#{index} #{opts.sample_rate} )
         end
       end)
 

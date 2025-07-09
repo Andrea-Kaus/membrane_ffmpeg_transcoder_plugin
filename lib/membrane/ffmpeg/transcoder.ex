@@ -37,6 +37,10 @@ defmodule Membrane.FFmpeg.Transcoder do
       sample_rate: [
         spec: pos_integer(),
         default: 48_000
+      ],
+      channels: [
+        spec: pos_integer(),
+        default: 2
       ]
     ]
   )
