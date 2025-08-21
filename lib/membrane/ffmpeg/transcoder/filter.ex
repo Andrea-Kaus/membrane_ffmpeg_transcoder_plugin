@@ -137,12 +137,19 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         ~w(-streamid #{index}:#{sid})
       end)
 
+    # These muxer options are there to make sure audio & video start roughly at the
+    # same time. If audio comes before the video, the missing video part is going to
+    # be replaced with a stale image of the first keyframe.
+    # This happens only with streaming sources such as SRT.
     muxer = ~w(
-            -muxpreload 0
-            -muxdelay 0
-            -output_ts_offset 0
-            -f mpegts
-            -
+      -avoid_negative_ts make_zero
+      -fflags +genpts
+      -fps_mode cfr
+      -muxpreload 0
+      -muxdelay 0
+      -output_ts_offset 0
+      -f mpegts
+      -
     )
 
     command = ~w(
