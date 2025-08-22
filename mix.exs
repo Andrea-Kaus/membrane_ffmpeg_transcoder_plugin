@@ -6,7 +6,7 @@ defmodule MembraneFFmpegTranscoder.MixProject do
   def project do
     [
       app: :membrane_ffmpeg_transcoder_plugin,
-      version: "1.2.10",
+      version: "1.2.11",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       source_url: @github_url,
