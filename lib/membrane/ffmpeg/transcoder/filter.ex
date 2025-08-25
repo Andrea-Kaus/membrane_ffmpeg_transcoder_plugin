@@ -113,6 +113,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
             -g:v:#{index} #{opts.gop_size}
             -rc-lookahead:v:#{index} #{opts.gop_size}
             -sc_threshold 0
+            -pix_fmt yuv420p
             -force_key_frames:v:#{index} #{"expr:gte(t,n_forced*#{div(opts.gop_size, opts.fps)})"}
             -bf:v:#{index} #{opts.b_frames}
             -maxrate:v:#{index} #{opts.bitrate}
@@ -149,12 +150,8 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     # be replaced with a stale image of the first keyframe.
     # This happens only with streaming sources such as SRT.
     muxer = ~w(
-      -avoid_negative_ts make_zero
-      -fflags +genpts
-      -fps_mode cfr
       -muxpreload 0
       -muxdelay 0
-      -output_ts_offset 0
       -f mpegts
       -
     )
