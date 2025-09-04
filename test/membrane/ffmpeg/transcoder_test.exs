@@ -97,7 +97,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
   test "extracts teletext subtitles", %{tmp_dir: tmp_dir} do
     spec = [
       child(:source, %Membrane.File.Source{
-        location: @input_path
+        location: "test/data/subtitle-test.ts"
       })
       |> child(:transcoder, Membrane.FFmpeg.Transcoder)
       |> via_out(:video, options: [copy: true])
@@ -106,7 +106,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
       |> via_out(:audio, options: [copy: true])
       |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
       get_child(:transcoder)
-      |> via_out(:text, options: [source: {:teletext, 888}])
+      |> via_out(:text, options: [source: {:dvb_teletext, 777}])
       |> child({:sink, :text}, %Membrane.File.Sink{location: "#{tmp_dir}/subtitles.txt"})
     ]
 
@@ -114,6 +114,9 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
     assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
     assert_end_of_stream(pid, {:sink, :text}, :input, 3_000)
+
+    assert File.read!("#{tmp_dir}/subtitles.txt") ==
+             "1\n00:00:00,942 --> 00:00:02,642\n♪ Mit Zucker lacht das Leben ♪ \n\n2\n00:00:03,442 --> 00:00:07,342\nAlte Werbespots stellen Zucker\nals Kraftspender dar.\n\n3\n00:00:08,342 --> 00:00:11,042\nAuch in den 70ern\nist sein Ruf noch gut.\n\n"
   end
 
   @tag :tmp_dir

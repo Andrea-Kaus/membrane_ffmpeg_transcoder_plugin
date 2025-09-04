@@ -30,8 +30,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   def_output_pad(:text,
     flow_control: :auto,
     availability: :on_request,
-    accepted_format: Membrane.Text,
-    # TODO: Reuse options from transcoder?
+    accepted_format: Membrane.RemoteStream,
     options: [
       source: [
         spec: {:dvb_teletext, 100..899},
@@ -45,7 +44,13 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   @impl true
   def handle_init(_ctx, _opts) do
-    {[], %{ffmpeg: nil, read_ref: nil, outputs: %{video: [], audio: []}}}
+    {[],
+     %{
+       ffmpeg: nil,
+       read_ref: nil,
+       outputs: %{video: [], audio: []},
+       text_ports: %{}
+     }}
   end
 
   @impl true
@@ -53,7 +58,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     text_formats =
       ctx
       |> text_pads()
-      |> Enum.map(&{:stream_format, {&1, %Membrane.Text{}}})
+      |> Enum.map(&{:stream_format, {&1, %Membrane.RemoteStream{}}})
 
     {[{:stream_format, {:ts, %Membrane.RemoteStream{}}} | text_formats], state}
   end
@@ -71,7 +76,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   @impl true
-  def handle_playing(_ctx, state) do
+  def handle_playing(ctx, state) do
     video_outputs =
       state.outputs.video
       |> Enum.with_index(0)
@@ -166,9 +171,24 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         ~w(-streamid #{index}:#{sid})
       end)
 
-    # TODO
-    text_selectors = ~w()
-    text_outputs = ~w()
+    {text_ports, text_selectors, text_outputs} =
+      ctx
+      |> text_pads()
+      |> Enum.with_index()
+      |> Enum.reduce({%{}, [], []}, fn {pad, idx}, {ports_acc, sel_acc, out_acc} ->
+        fifo = make_fifo!("text_#{idx}.fifo")
+        port = Port.open({:spawn, "cat #{fifo}"}, [:binary])
+
+        selector =
+          case ctx.pads[pad].options.source do
+            {:dvb_teletext, page_number} -> ~w(-txt_page #{page_number})
+          end
+
+        output = ~w(-map 0:s:#{idx}? -f srt #{fifo})
+
+        ports_acc = Map.put(ports_acc, port, %{fifo: fifo, pad: pad})
+        {ports_acc, sel_acc ++ selector, out_acc ++ output}
+      end)
 
     # These muxer options are there to make sure audio & video start roughly at the
     # same time. If audio comes before the video, the missing video part is going to
@@ -186,8 +206,9 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
           ffmpeg -y -hide_banner -loglevel error
         ) ++
         text_selectors ++
+        ~w(-txt_format text -fix_sub_duration) ++
         ~w(-i -) ++
-        filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ text_outputs ++ muxer
+        filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer ++ text_outputs
 
     Membrane.Logger.info("ffmpeg[transcoder]: #{Enum.join(command, " ")}")
     {:ok, ffmpeg} = Exile.Process.start_link(command, stderr: :consume)
@@ -202,7 +223,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         read_loop(ffmpeg, parent, ref)
       end)
 
-    {[], %{state | ffmpeg: ffmpeg, read_ref: task.ref}}
+    {[], %{state | ffmpeg: ffmpeg, read_ref: task.ref, text_ports: text_ports}}
   end
 
   @impl true
@@ -229,6 +250,12 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     {[buffer: {:ts, %Membrane.Buffer{payload: payload}}], state}
   end
 
+  def handle_info({port, {:data, payload}}, _ctx, state)
+      when is_map_key(state.text_ports, port) do
+    pad = state.text_ports[port].pad
+    {[buffer: {pad, %Membrane.Buffer{payload: payload}}], state}
+  end
+
   def handle_info({:exile, {:data, {:stderr, payload}}}, _ctx, state) do
     payload
     |> String.split("\n")
@@ -246,6 +273,12 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   def handle_info({:DOWN, ref, :process, _pid, :normal}, ctx, state = %{read_ref: ref}) do
     {:ok, status} = Exile.Process.await_exit(state.ffmpeg)
     Membrane.Logger.info("ffmpeg[transcoder]: exited with status: #{status}")
+
+    state.text_ports
+    |> Enum.each(fn {port, %{fifo: fifo}} ->
+      send(port, {self(), :close})
+      File.rm(fifo)
+    end)
 
     text_eos =
       ctx
@@ -294,5 +327,14 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     ctx.pads
     |> Map.keys()
     |> Enum.filter(&match?(Pad.ref(:text, _), &1))
+  end
+
+  defp make_fifo!(name) do
+    dir = Path.join([System.tmp_dir!(), "membrane_ffmpeg_transcoder"])
+    File.mkdir_p!(dir)
+    path = Path.join(dir, name)
+    _ = File.rm(path)
+    {_, 0} = System.cmd("mkfifo", [path])
+    path
   end
 end

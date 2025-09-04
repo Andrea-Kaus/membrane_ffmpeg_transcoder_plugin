@@ -101,7 +101,7 @@ defmodule Membrane.FFmpeg.Transcoder do
   )
 
   def_output_pad(:text,
-    accepted_format: Membrane.Text,
+    accepted_format: Membrane.RemoteStream,
     availability: :on_request,
     options: [
       source: [
