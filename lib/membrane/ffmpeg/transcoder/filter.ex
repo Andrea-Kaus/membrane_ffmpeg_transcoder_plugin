@@ -22,9 +22,25 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     accepted_format: Membrane.RemoteStream
   )
 
-  def_output_pad(:output,
+  def_output_pad(:ts,
     flow_control: :auto,
     accepted_format: Membrane.RemoteStream
+  )
+
+  def_output_pad(:text,
+    flow_control: :auto,
+    availability: :on_request,
+    accepted_format: Membrane.Text,
+    # TODO: Reuse options from transcoder?
+    options: [
+      source: [
+        spec: {:dvb_teletext, 100..899},
+        description: """
+        Defines the source of the captions. Currently supported:
+        * Teletext: `{:dvb_teletext, page_number}`
+        """
+      ]
+    ]
   )
 
   @impl true
@@ -33,17 +49,22 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   @impl true
-  def handle_stream_format(_pad, _stream_format, _ctx, state) do
-    {[forward: %Membrane.RemoteStream{}], state}
+  def handle_stream_format(_pad, _stream_format, ctx, state) do
+    text_formats =
+      ctx
+      |> text_pads()
+      |> Enum.map(&{:stream_format, {&1, %Membrane.Text{}}})
+
+    {[{:stream_format, {:ts, %Membrane.RemoteStream{}}} | text_formats], state}
   end
 
   @impl true
   def handle_parent_notification({:stream_added, _opts}, ctx, _state)
-      when ctx.playback == :playing,
-      do:
-        raise(
-          "New pads can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
-        )
+      when ctx.playback == :playing do
+    raise(
+      "New pads can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
+    )
+  end
 
   def handle_parent_notification({:stream_added, {type, sid}, opts}, _ctx, state) do
     {[], update_in(state, [:outputs, type], fn acc -> acc ++ [{sid, opts}] end)}
@@ -145,6 +166,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         ~w(-streamid #{index}:#{sid})
       end)
 
+    # TODO
+    text_selectors = ~w()
+    text_outputs = ~w()
+
     # These muxer options are there to make sure audio & video start roughly at the
     # same time. If audio comes before the video, the missing video part is going to
     # be replaced with a stale image of the first keyframe.
@@ -156,11 +181,13 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       -
     )
 
-    command = ~w(
-          ffmpeg -y -hide_banner
-          -loglevel error
-          -i -
-        ) ++ filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer
+    command =
+      ~w(
+          ffmpeg -y -hide_banner -loglevel error
+        ) ++
+        text_selectors ++
+        ~w(-i -) ++
+        filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ text_outputs ++ muxer
 
     Membrane.Logger.info("ffmpeg[transcoder]: #{Enum.join(command, " ")}")
     {:ok, ffmpeg} = Exile.Process.start_link(command, stderr: :consume)
@@ -199,7 +226,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   @impl true
   def handle_info({:exile, {:data, {:stdout, payload}}}, _ctx, state) do
-    {[buffer: {:output, %Membrane.Buffer{payload: payload}}], state}
+    {[buffer: {:ts, %Membrane.Buffer{payload: payload}}], state}
   end
 
   def handle_info({:exile, {:data, {:stderr, payload}}}, _ctx, state) do
@@ -216,10 +243,16 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     {[], state}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, :normal}, _ctx, state = %{read_ref: ref}) do
+  def handle_info({:DOWN, ref, :process, _pid, :normal}, ctx, state = %{read_ref: ref}) do
     {:ok, status} = Exile.Process.await_exit(state.ffmpeg)
     Membrane.Logger.info("ffmpeg[transcoder]: exited with status: #{status}")
-    {[end_of_stream: :output], clear(state)}
+
+    text_eos =
+      ctx
+      |> text_pads()
+      |> Enum.map(&{:end_of_stream, &1})
+
+    {[{:end_of_stream, :ts} | text_eos], clear(state)}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, {reason, _stacktrace}}, _ctx, %{read_ref: ref}) do
@@ -255,5 +288,11 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     state
     |> put_in([:read_ref], nil)
     |> put_in([:ffmpeg], nil)
+  end
+
+  defp text_pads(ctx) do
+    ctx.pads
+    |> Map.keys()
+    |> Enum.filter(&match?(Pad.ref(:text, _), &1))
   end
 end

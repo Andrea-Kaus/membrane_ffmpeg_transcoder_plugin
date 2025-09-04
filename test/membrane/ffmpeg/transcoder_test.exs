@@ -94,6 +94,29 @@ defmodule Membrane.FFmpeg.TranscoderTest do
   end
 
   @tag :tmp_dir
+  test "extracts teletext subtitles", %{tmp_dir: tmp_dir} do
+    spec = [
+      child(:source, %Membrane.File.Source{
+        location: @input_path
+      })
+      |> child(:transcoder, Membrane.FFmpeg.Transcoder)
+      |> via_out(:video, options: [copy: true])
+      |> child({:sink, :video}, %Membrane.File.Sink{location: "#{tmp_dir}/video.h264"}),
+      get_child(:transcoder)
+      |> via_out(:audio, options: [copy: true])
+      |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
+      get_child(:transcoder)
+      |> via_out(:text, options: [source: {:teletext, 888}])
+      |> child({:sink, :text}, %Membrane.File.Sink{location: "#{tmp_dir}/subtitles.txt"})
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :text}, :input, 3_000)
+  end
+
+  @tag :tmp_dir
   test "transcodes an input video into multiple qualities", %{tmp_dir: tmp_dir} do
     spec =
       [

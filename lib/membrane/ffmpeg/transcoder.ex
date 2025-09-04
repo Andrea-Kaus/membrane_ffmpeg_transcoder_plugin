@@ -100,11 +100,26 @@ defmodule Membrane.FFmpeg.Transcoder do
     ]
   )
 
+  def_output_pad(:text,
+    accepted_format: Membrane.Text,
+    availability: :on_request,
+    options: [
+      source: [
+        spec: {:dvb_teletext, 100..899},
+        description: """
+        Defines the source of the captions. Currently supported:
+        * Teletext: `{:dvb_teletext, page_number}`
+        """
+      ]
+    ]
+  )
+
   @impl true
   def handle_init(_ctx, _opts) do
     spec = [
       bin_input()
       |> child(:transcoder, Transcoder.Filter)
+      |> via_out(:ts)
       |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
     ]
 
@@ -117,6 +132,16 @@ defmodule Membrane.FFmpeg.Transcoder do
       raise(
         "New pads can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
       )
+
+  def handle_pad_added(Pad.ref(:text, _ref) = pad, ctx, state) do
+    spec = [
+      get_child(:transcoder)
+      |> via_out(:text, options: [source: ctx.pad_options.source])
+      |> bin_output(pad)
+    ]
+
+    {[spec: spec], state}
+  end
 
   def handle_pad_added(pad, ctx, state) do
     sid = Enum.count(state.sid_to_pad) + @mpeg_ts_sid_index_offset
