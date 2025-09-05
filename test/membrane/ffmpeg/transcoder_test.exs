@@ -107,7 +107,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
       |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
       get_child(:transcoder)
       |> via_out(:text, options: [source: {:dvb_teletext, 777}])
-      |> child({:sink, :text}, %Membrane.File.Sink{location: "#{tmp_dir}/subtitles.txt"})
+      |> child({:sink, :text}, %Membrane.Testing.Sink{})
     ]
 
     pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
@@ -115,8 +115,20 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
     assert_end_of_stream(pid, {:sink, :text}, :input, 3_000)
 
-    assert File.read!("#{tmp_dir}/subtitles.txt") ==
-             "1\n00:00:00,942 --> 00:00:02,642\n♪ Mit Zucker lacht das Leben ♪ \n\n2\n00:00:03,442 --> 00:00:07,342\nAlte Werbespots stellen Zucker\nals Kraftspender dar.\n\n3\n00:00:08,342 --> 00:00:11,042\nAuch in den 70ern\nist sein Ruf noch gut.\n\n"
+    assert_sink_buffer(pid, {:sink, :text}, %Membrane.Buffer{
+      payload: "♪ Mit Zucker lacht das Leben ♪",
+      pts: 942_000_000
+    })
+
+    assert_sink_buffer(pid, {:sink, :text}, %Membrane.Buffer{
+      payload: "Alte Werbespots stellen Zucker\nals Kraftspender dar.",
+      pts: 3_442_000_000
+    })
+
+    assert_sink_buffer(pid, {:sink, :text}, %Membrane.Buffer{
+      payload: "Auch in den 70ern\nist sein Ruf noch gut.",
+      pts: 8_342_000_000
+    })
   end
 
   @tag :tmp_dir
