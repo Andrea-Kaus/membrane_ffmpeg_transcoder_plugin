@@ -46,6 +46,7 @@ defmodule MembraneFFmpegTranscoder.MixProject do
       {:membrane_core, "~> 1.1"},
       {:membrane_mpeg_ts_plugin, "~> 1.0"},
       {:membrane_text_format, "~> 1.0"},
+      {:kim_subtitle, "~> 0.1.2"},
 
       #
       {:exile, "~> 0.11.0"},

@@ -232,6 +232,12 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       :ok ->
         {[], state}
 
+      # TODO: We should ignore this error as it means that ffmpeg has already exited.
+      # Having this error hides the actual error message.
+      # But right now its helping us to bring down the element in a "clean" way.
+      # {:error, :epipe} ->
+      #   {[], state}
+
       {:error, reason} ->
         raise FFmpegError, "unable to write buffer: #{inspect(reason)}"
     end

@@ -101,7 +101,7 @@ defmodule Membrane.FFmpeg.Transcoder do
   )
 
   def_output_pad(:text,
-    accepted_format: Membrane.RemoteStream,
+    accepted_format: Membrane.Text,
     availability: :on_request,
     options: [
       source: [
@@ -133,10 +133,11 @@ defmodule Membrane.FFmpeg.Transcoder do
         "New pads can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
       )
 
-  def handle_pad_added(Pad.ref(:text, _ref) = pad, ctx, state) do
+  def handle_pad_added(Pad.ref(:text, ref) = pad, ctx, state) do
     spec = [
       get_child(:transcoder)
       |> via_out(:text, options: [source: ctx.pad_options.source])
+      |> child({:srt_parser, ref}, Transcoder.SrtParsingFilter)
       |> bin_output(pad)
     ]
 
