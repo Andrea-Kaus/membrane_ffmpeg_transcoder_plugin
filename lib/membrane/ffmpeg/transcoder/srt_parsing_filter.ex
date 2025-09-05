@@ -37,7 +37,7 @@ defmodule Membrane.FFmpeg.Transcoder.SrtParsingFilter do
     %Membrane.Buffer{
       payload: cue.text,
       pts: from,
-      metadata: %{duration: to - from}
+      metadata: %{to: to, duration: to - from}
     }
   end
 end
