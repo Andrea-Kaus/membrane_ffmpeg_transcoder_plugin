@@ -120,6 +120,10 @@ defmodule Membrane.FFmpeg.Transcoder do
       bin_input()
       |> child(:transcoder, Transcoder.Filter)
       |> via_out(:ts)
+      # NOTE: In the case of a specific input source the output is being bursted out after a while.
+      # We need to check out whats the reason for this and if the transcoder is the problem.
+      # In the meanwhile we keep this as a temporary hack.
+      |> via_in(:input, toilet_capacity: 3000)
       |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
     ]
 
