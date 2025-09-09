@@ -100,11 +100,30 @@ defmodule Membrane.FFmpeg.Transcoder do
     ]
   )
 
+  def_output_pad(:text,
+    accepted_format: Membrane.Text,
+    availability: :on_request,
+    options: [
+      source: [
+        spec: {:dvb_teletext, 100..899},
+        description: """
+        Defines the source of the captions. Currently supported:
+        * Teletext: `{:dvb_teletext, page_number}`
+        """
+      ]
+    ]
+  )
+
   @impl true
   def handle_init(_ctx, _opts) do
     spec = [
       bin_input()
       |> child(:transcoder, Transcoder.Filter)
+      |> via_out(:ts)
+      # NOTE: In the case of a specific input source the output is being bursted out after a while.
+      # We need to check out whats the reason for this and if the transcoder is the problem.
+      # In the meanwhile we keep this as a temporary hack.
+      |> via_in(:input, toilet_capacity: 3000)
       |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
     ]
 
@@ -117,6 +136,17 @@ defmodule Membrane.FFmpeg.Transcoder do
       raise(
         "New pads can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
       )
+
+  def handle_pad_added(Pad.ref(:text, ref) = pad, ctx, state) do
+    spec = [
+      get_child(:transcoder)
+      |> via_out(:text, options: [source: ctx.pad_options.source])
+      |> child({:srt_parser, ref}, Transcoder.SrtParsingFilter)
+      |> bin_output(pad)
+    ]
+
+    {[spec: spec], state}
+  end
 
   def handle_pad_added(pad, ctx, state) do
     sid = Enum.count(state.sid_to_pad) + @mpeg_ts_sid_index_offset
