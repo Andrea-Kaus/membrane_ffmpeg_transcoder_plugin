@@ -181,7 +181,8 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
         selector =
           case ctx.pads[pad].options.source do
-            {:dvb_teletext, page_number} -> ~w(-txt_page #{page_number})
+            {:dvb_teletext, page_number} ->
+              ~w(-txt_format text -fix_sub_duration -txt_page #{page_number})
           end
 
         output = ~w(-map 0:s:#{idx}? -f srt #{fifo})
@@ -206,7 +207,6 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
           ffmpeg -y -hide_banner -loglevel error
         ) ++
         text_selectors ++
-        ~w(-txt_format text -fix_sub_duration) ++
         ~w(-i -) ++
         filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer ++ text_outputs
 
