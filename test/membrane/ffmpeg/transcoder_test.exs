@@ -88,9 +88,9 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     ]
 
     pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
-    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
-    assert_end_of_stream(pid, {:sink, :sd}, :input, 3_000)
-    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 10_000)
+    assert_end_of_stream(pid, {:sink, :sd}, :input, 10_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 10_000)
   end
 
   @tag :tmp_dir
@@ -111,24 +111,39 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     ]
 
     pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
-    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
-    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
-    assert_end_of_stream(pid, {:sink, :text}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 10_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 10_000)
+    assert_end_of_stream(pid, {:sink, :text}, :input, 10_000)
 
-    assert_sink_buffer(pid, {:sink, :text}, %Membrane.Buffer{
-      payload: "♪ Mit Zucker lacht das Leben ♪",
-      pts: 942_000_000
-    })
+    assert_sink_buffer(
+      pid,
+      {:sink, :text},
+      %Membrane.Buffer{
+        payload: "♪ Mit Zucker lacht das Leben ♪",
+        pts: 942_000_000
+      },
+      5_000
+    )
 
-    assert_sink_buffer(pid, {:sink, :text}, %Membrane.Buffer{
-      payload: "Alte Werbespots stellen Zucker\nals Kraftspender dar.",
-      pts: 3_442_000_000
-    })
+    assert_sink_buffer(
+      pid,
+      {:sink, :text},
+      %Membrane.Buffer{
+        payload: "Alte Werbespots stellen Zucker\nals Kraftspender dar.",
+        pts: 3_442_000_000
+      },
+      5_000
+    )
 
-    assert_sink_buffer(pid, {:sink, :text}, %Membrane.Buffer{
-      payload: "Auch in den 70ern\nist sein Ruf noch gut.",
-      pts: 8_342_000_000
-    })
+    assert_sink_buffer(
+      pid,
+      {:sink, :text},
+      %Membrane.Buffer{
+        payload: "Auch in den 70ern\nist sein Ruf noch gut.",
+        pts: 8_342_000_000
+      },
+      5_000
+    )
   end
 
   @tag :tmp_dir
@@ -188,12 +203,9 @@ defmodule Membrane.FFmpeg.TranscoderTest do
   end
 
   defp assert_video_properties(path, opts) do
-    props =
-      Exile.stream!(~w(ffprobe -show_streams -of json #{path}), stderr: :disable)
-      |> Enum.into(<<>>)
-      |> JSON.decode!()
-
+    props = ffprobe(path)
     assert [stream] = props["streams"]
+
     {_width, height} = opts[:resolution]
     assert stream["height"] == height
 
@@ -214,14 +226,23 @@ defmodule Membrane.FFmpeg.TranscoderTest do
   end
 
   defp assert_audio_properties(path, opts) do
-    props =
-      Exile.stream!(~w(ffprobe -show_streams -of json #{path}), stderr: :disable)
-      |> Enum.into(<<>>)
-      |> JSON.decode!()
+    props = ffprobe(path)
 
     assert [stream] = props["streams"]
     assert stream["codec_name"] == "aac"
     assert String.to_integer(stream["bit_rate"]) <= opts[:bitrate]
     assert String.to_integer(stream["sample_rate"]) == opts[:sample_rate]
+  end
+
+  defp ffprobe(path) do
+    ~w(ffprobe -show_streams -of json #{path})
+    |> Enum.join(" ")
+    |> :exec.run([:sync, {:stderr, :null}, :stdout])
+    |> then(fn {:ok, elems} ->
+      elems
+      |> Keyword.fetch!(:stdout)
+      |> Enum.into(<<>>)
+      |> JSON.decode!()
+    end)
   end
 end

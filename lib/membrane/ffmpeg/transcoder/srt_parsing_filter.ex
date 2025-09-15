@@ -33,9 +33,10 @@ defmodule Membrane.FFmpeg.Transcoder.SrtParsingFilter do
   def cue_to_buffer(cue) do
     from = Membrane.Time.milliseconds(cue.from)
     to = Membrane.Time.milliseconds(cue.to)
+    text = String.replace(cue.text, "\r", "")
 
     %Membrane.Buffer{
-      payload: cue.text,
+      payload: text,
       pts: from,
       metadata: %{to: to, duration: to - from}
     }

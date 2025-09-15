@@ -5,7 +5,8 @@ defmodule Membrane.FFmpeg.Transcoder.Application do
 
   def start(_type, _args) do
     children = [
-      {Task.Supervisor, name: Transcoder.TaskSupervisor}
+      {Task.Supervisor, name: Transcoder.TaskSupervisor},
+      {DynamicSupervisor, name: Transcoder.DynamicSupervisor}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Transcoder.Supervisor)
