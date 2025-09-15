@@ -70,6 +70,55 @@ defmodule Membrane.FFmpeg.TranscoderTest do
   ]
 
   @tag :tmp_dir
+  test "copy from input_path", %{tmp_dir: tmp_dir} do
+    spec = [
+      child(:transcoder, %Membrane.FFmpeg.Transcoder{
+        input_path: @input_path
+      })
+      |> via_out(:video, options: [copy: true])
+      |> child({:sink, :video}, %Membrane.File.Sink{location: "#{tmp_dir}/video.h264"}),
+      get_child(:transcoder)
+      |> via_out(:audio, options: [copy: true])
+      |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
+      # We're also adding a non-copy output to ensure copy and non-copy can live together.
+      get_child(:transcoder)
+      |> via_out(:video, options: @video_outputs[:sd])
+      |> child({:sink, :sd}, %Membrane.File.Sink{location: "#{tmp_dir}/sd.h264"})
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :sd}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
+  end
+
+  @tag :tmp_dir
+  test "copy from input_path, close with notification", %{tmp_dir: tmp_dir} do
+    spec = [
+      child(:transcoder, %Membrane.FFmpeg.Transcoder{
+        input_path: "srt://localhost:11223?mode=caller"
+      })
+      |> via_out(:video, options: [copy: true])
+      |> child({:sink, :video}, %Membrane.File.Sink{location: "#{tmp_dir}/video.h264"}),
+      get_child(:transcoder)
+      |> via_out(:audio, options: [copy: true])
+      |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
+      # We're also adding a non-copy output to ensure copy and non-copy can live together.
+      get_child(:transcoder)
+      |> via_out(:video, options: @video_outputs[:sd])
+      |> child({:sink, :sd}, %Membrane.File.Sink{location: "#{tmp_dir}/sd.h264"})
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+    assert_child_playing(pid, :transcoder)
+
+    Membrane.Testing.Pipeline.notify_child(pid, :transcoder, :close)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 8_000)
+    assert_end_of_stream(pid, {:sink, :sd}, :input, 8_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 8_000)
+  end
+
+  @tag :tmp_dir
   test "copy", %{tmp_dir: tmp_dir} do
     spec = [
       child(:source, %Membrane.File.Source{
@@ -88,9 +137,9 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     ]
 
     pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
-    assert_end_of_stream(pid, {:sink, :video}, :input, 10_000)
-    assert_end_of_stream(pid, {:sink, :sd}, :input, 10_000)
-    assert_end_of_stream(pid, {:sink, :audio}, :input, 10_000)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :sd}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
   end
 
   @tag :tmp_dir
@@ -111,9 +160,9 @@ defmodule Membrane.FFmpeg.TranscoderTest do
     ]
 
     pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
-    assert_end_of_stream(pid, {:sink, :video}, :input, 10_000)
-    assert_end_of_stream(pid, {:sink, :audio}, :input, 10_000)
-    assert_end_of_stream(pid, {:sink, :text}, :input, 10_000)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :text}, :input, 3_000)
 
     assert_sink_buffer(
       pid,

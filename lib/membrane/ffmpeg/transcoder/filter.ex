@@ -86,13 +86,8 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   @impl true
-  def handle_stream_format(_pad, _stream_format, ctx, state) do
-    text_formats =
-      ctx
-      |> text_pads()
-      |> Enum.map(&{:stream_format, {&1, %Membrane.RemoteStream{}}})
-
-    {[{:stream_format, {:ts, %Membrane.RemoteStream{}}} | text_formats], state}
+  def handle_stream_format(_pad, _stream_format, _ctx, state) do
+    {[], state}
   end
 
   @impl true
@@ -105,6 +100,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   def handle_parent_notification({:stream_added, {type, sid}, opts}, _ctx, state) do
     {[], update_in(state, [:outputs, type], fn acc -> acc ++ [{sid, opts}] end)}
+  end
+
+  def handle_parent_notification(:close, _ctx, state) do
+    {[], close_ffmpeg(state)}
   end
 
   @impl true
@@ -235,7 +234,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
     command =
       ~w(
-          #{System.find_executable("ffmpeg")} -y -hide_banner -loglevel error
+          #{System.find_executable("ffmpeg")} -y -hide_banner -loglevel info
         ) ++
         text_selectors ++
         ~w(-i #{state.ffmpeg_input_path}) ++
@@ -265,7 +264,14 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
     Membrane.Logger.info("ffmpeg[transcoder]: pid=#{inspect(pid)}, ospid=#{inspect(ospid)}")
 
-    {[], %{state | ffmpeg: %{pid: pid, ospid: ospid}, text_ports: text_ports}}
+    state = %{state | ffmpeg: %{pid: pid, ospid: ospid}, text_ports: text_ports}
+
+    text_formats =
+      ctx
+      |> text_pads()
+      |> Enum.map(&{:stream_format, {&1, %Membrane.RemoteStream{}}})
+
+    {[{:stream_format, {:ts, %Membrane.RemoteStream{}}} | text_formats], state}
   end
 
   @impl true
@@ -293,8 +299,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   def handle_end_of_stream(_pad, _ctx, state) do
     # Wait for the DOWN message before sending this one out.
-    :ok = :exec.stop(state.ffmpeg.ospid)
-    {[], put_in(state, [:closing], true)}
+    {[], close_ffmpeg(state)}
   end
 
   @impl true
@@ -313,6 +318,8 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         ctx,
         state = %{ffmpeg: %{ospid: ospid}}
       ) do
+    Membrane.Logger.warning("FFMPEG IS OUT")
+
     reason =
       case reason do
         :normal ->
@@ -333,7 +340,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       File.rm(fifo)
     end)
 
-    if state.closing do
+    if state.closing or (reason == :normal and not state.reads_from_stdin) do
       text_eos =
         ctx
         |> text_pads()
@@ -363,5 +370,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     _ = File.rm(path)
     {_, 0} = System.cmd("mkfifo", [path])
     path
+  end
+
+  defp close_ffmpeg(state) do
+    :exec.send(state.ffmpeg.ospid, :eof)
+    put_in(state, [:closing], true)
   end
 end

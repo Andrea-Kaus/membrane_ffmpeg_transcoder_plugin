@@ -7,7 +7,7 @@ defmodule Membrane.FFmpeg.Transcoder do
   input stream contains more than 1 video and 1 audio stream, which one will be picked is
   undefined behaviour.
   """
-  use Membrane.Bin
+  use Membrane.Bin, flow_control_hints?: false
   alias Membrane.FFmpeg.Transcoder
 
   require Membrane.Logger
@@ -17,6 +17,7 @@ defmodule Membrane.FFmpeg.Transcoder do
   @mpeg_ts_sid_index_offset 256
 
   def_input_pad(:input,
+    availability: :on_request,
     accepted_format: Membrane.RemoteStream
   )
 
@@ -114,11 +115,23 @@ defmodule Membrane.FFmpeg.Transcoder do
     ]
   )
 
+  def_options(
+    input_path: [
+      spec: String.t(),
+      default: "-",
+      description: """
+      Transcoder's input path. If - is specified or the input pad is attached, buffers will be read
+      from there (ignoring the option).
+      """
+    ]
+  )
+
   @impl true
-  def handle_init(_ctx, _opts) do
+  def handle_init(_ctx, opts) do
     spec = [
-      bin_input()
-      |> child(:transcoder, Transcoder.Filter)
+      child(:transcoder, %Transcoder.Filter{
+        input_path: opts.input_path
+      })
       |> via_out(:ts)
       # NOTE: In the case of a specific input source the output is being bursted out after a while.
       # We need to check out whats the reason for this and if the transcoder is the problem.
@@ -128,6 +141,13 @@ defmodule Membrane.FFmpeg.Transcoder do
     ]
 
     {[spec: spec], %{sid_to_pad: %{}}}
+  end
+
+  @impl true
+  def handle_parent_notification(:close, _ctx, state) do
+    # This notification is useful when the transcoder has the input_path
+    # option set and hence cannot be stopped with a standard end_of_stream message.
+    {[notify_child: {:transcoder, :close}], state}
   end
 
   @impl true
@@ -143,6 +163,15 @@ defmodule Membrane.FFmpeg.Transcoder do
       |> via_out(:text, options: [source: ctx.pad_options.source])
       |> child({:srt_parser, ref}, Transcoder.SrtParsingFilter)
       |> bin_output(pad)
+    ]
+
+    {[spec: spec], state}
+  end
+
+  def handle_pad_added(pad = {Membrane.Pad, :input, _ref}, _ctx, state) do
+    spec = [
+      bin_input(pad)
+      |> get_child(:transcoder)
     ]
 
     {[spec: spec], state}
