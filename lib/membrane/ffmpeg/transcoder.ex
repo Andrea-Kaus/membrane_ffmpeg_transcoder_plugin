@@ -140,7 +140,7 @@ defmodule Membrane.FFmpeg.Transcoder do
       |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
     ]
 
-    {[spec: spec], %{sid_to_pad: %{}}}
+    {[spec: spec], %{sid_to_pad: %{}, pmt_received: false}}
   end
 
   @impl true
@@ -148,6 +148,22 @@ defmodule Membrane.FFmpeg.Transcoder do
     # This notification is useful when the transcoder has the input_path
     # option set and hence cannot be stopped with a standard end_of_stream message.
     {[notify_child: {:transcoder, :close}], state}
+  end
+
+  @impl true
+  def handle_element_end_of_stream(:demuxer, _pad, _ctx, state) when not state.pmt_received do
+    # It means adapters are not connected to the demuxer and hence will not forward
+    # the end_of_stream message to the bin's output pads.
+    actions =
+      state.sid_to_pad
+      |> Enum.map(fn {sid, _pad} -> {:funnel, sid} end)
+      |> Enum.map(fn child -> {:notify_child, {child, :close}} end)
+
+    {actions, state}
+  end
+
+  def handle_element_end_of_stream(_child, _pad, _ctx, state) do
+    {[], state}
   end
 
   @impl true
@@ -225,6 +241,6 @@ defmodule Membrane.FFmpeg.Transcoder do
         ]
       end)
 
-    {actions, state}
+    {actions, put_in(state, [:pmt_received], true)}
   end
 end

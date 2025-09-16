@@ -234,7 +234,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
     command =
       ~w(
-          #{System.find_executable("ffmpeg")} -y -hide_banner -loglevel info
+          #{System.find_executable("ffmpeg")} -y -hide_banner -loglevel warning
         ) ++
         text_selectors ++
         ~w(-i #{state.ffmpeg_input_path}) ++
@@ -318,8 +318,6 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         ctx,
         state = %{ffmpeg: %{ospid: ospid}}
       ) do
-    Membrane.Logger.warning("FFMPEG IS OUT")
-
     reason =
       case reason do
         :normal ->

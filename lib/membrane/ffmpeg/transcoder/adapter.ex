@@ -31,6 +31,14 @@ defmodule Membrane.FFmpeg.Transcoder.Adapter do
     {[stream_format: {:output, format}], put_in(state, [:stream_format], format)}
   end
 
+  def handle_parent_notification(:close, ctx, state) do
+    if ctx.pads.output.end_of_stream? do
+      {[], state}
+    else
+      {[end_of_stream: :output], state}
+    end
+  end
+
   @impl true
   def handle_stream_format(_pad, _format, _ctx, state) do
     {[], state}
