@@ -102,8 +102,17 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     {[], update_in(state, [:outputs, type], fn acc -> acc ++ [{sid, opts}] end)}
   end
 
-  def handle_parent_notification(:close, _ctx, state) do
-    {[], close_ffmpeg(state)}
+  def handle_parent_notification(:close, ctx, state) do
+    Membrane.Logger.info("Close notification received: stopping FFmpeg")
+    # In case ffmpeg is reading some input, it is not enough to just send the eof
+    # message to its STDIN
+    if state.ffmpeg != nil do
+      state = close_ffmpeg(state)
+      :ok = :exec.stop(state.ffmpeg.ospid)
+      {[], state}
+    else
+      forward_end_of_stream(ctx, state)
+    end
   end
 
   @impl true
@@ -289,8 +298,8 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   @impl true
-  def handle_end_of_stream(_pad, _ctx, state = %{ffmpeg: nil}) do
-    {[forward: :end_of_stream], state}
+  def handle_end_of_stream(_pad, ctx, state = %{ffmpeg: nil}) do
+    forward_end_of_stream(ctx, state)
   end
 
   def handle_end_of_stream(_pad, _ctx, state = %{closing: true}) do
@@ -339,12 +348,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     end)
 
     if state.closing or reason == :normal do
-      text_eos =
-        ctx
-        |> text_pads()
-        |> Enum.map(&{:end_of_stream, &1})
-
-      {[{:end_of_stream, :ts} | text_eos], put_in(state, [:ffmpeg], nil)}
+      forward_end_of_stream(ctx, state)
     else
       raise FFmpegError, "FFmpeg terminated before EOS: #{inspect(reason)}"
     end
@@ -373,5 +377,14 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   defp close_ffmpeg(state) do
     :exec.send(state.ffmpeg.ospid, :eof)
     put_in(state, [:closing], true)
+  end
+
+  defp forward_end_of_stream(ctx, state) do
+    text_eos =
+      ctx
+      |> text_pads()
+      |> Enum.map(&{:end_of_stream, &1})
+
+    {[{:end_of_stream, :ts} | text_eos], put_in(state, [:ffmpeg], nil)}
   end
 end
