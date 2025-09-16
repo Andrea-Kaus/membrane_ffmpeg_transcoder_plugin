@@ -338,7 +338,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       File.rm(fifo)
     end)
 
-    if state.closing or (reason == :normal and not state.reads_from_stdin) do
+    if state.closing or reason == :normal do
       text_eos =
         ctx
         |> text_pads()
