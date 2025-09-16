@@ -2,7 +2,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   @moduledoc """
   Internal module. Outputs MPEG-TS as an unparsed remote stream.
   """
-  use Membrane.Filter
+  use Membrane.Filter, flow_control_hints?: false
   require Membrane.Logger
 
   defmodule FFmpegError do
@@ -19,6 +19,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   def_input_pad(:input,
+    availability: :on_request,
     accepted_format: Membrane.RemoteStream
   )
 
@@ -42,25 +43,51 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     ]
   )
 
+  def_options(
+    input_path: [
+      spec: String.t(),
+      default: "-",
+      description: """
+      Transcoder's input path. If - is specified or the input pad is attached, buffers will be read
+      from there (ignoring the option).
+      """
+    ]
+  )
+
   @impl true
-  def handle_init(_ctx, _opts) do
+  def handle_init(_ctx, opts) do
     {[],
      %{
        ffmpeg: nil,
-       read_ref: nil,
+       closing: false,
+       ffmpeg_input_path: opts.input_path,
+       reads_from_stdin: false,
        outputs: %{video: [], audio: []},
        text_ports: %{}
      }}
   end
 
   @impl true
-  def handle_stream_format(_pad, _stream_format, ctx, state) do
-    text_formats =
-      ctx
-      |> text_pads()
-      |> Enum.map(&{:stream_format, {&1, %Membrane.RemoteStream{}}})
+  def handle_pad_added({Membrane.Pad, :input, _ref}, _ctx, state = %{reads_from_stdin: false}) do
+    state =
+      state
+      |> put_in([:ffmpeg_input_path], "-")
+      |> put_in([:reads_from_stdin], true)
 
-    {[{:stream_format, {:ts, %Membrane.RemoteStream{}}} | text_formats], state}
+    {[], state}
+  end
+
+  def handle_pad_added({Membrane.Pad, :input, _ref}, _ctx, _state) do
+    raise "Transcoder does not support multiple input sources"
+  end
+
+  def handle_pad_added(_pad, _ctx, state) do
+    {[], state}
+  end
+
+  @impl true
+  def handle_stream_format(_pad, _stream_format, _ctx, state) do
+    {[], state}
   end
 
   @impl true
@@ -73,6 +100,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   def handle_parent_notification({:stream_added, {type, sid}, opts}, _ctx, state) do
     {[], update_in(state, [:outputs, type], fn acc -> acc ++ [{sid, opts}] end)}
+  end
+
+  def handle_parent_notification(:close, _ctx, state) do
+    {[], close_ffmpeg(state)}
   end
 
   @impl true
@@ -177,6 +208,9 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       |> Enum.with_index()
       |> Enum.reduce({%{}, [], []}, fn {pad, idx}, {ports_acc, sel_acc, out_acc} ->
         fifo = make_fifo!("text_#{idx}.fifo")
+
+        # TODO
+        # erlexec here as well? Ports are leaked this way apparently.
         port = Port.open({:spawn, "cat #{fifo}"}, [:binary])
 
         selector =
@@ -191,10 +225,6 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         {ports_acc, sel_acc ++ selector, out_acc ++ output}
       end)
 
-    # These muxer options are there to make sure audio & video start roughly at the
-    # same time. If audio comes before the video, the missing video part is going to
-    # be replaced with a stale image of the first keyframe.
-    # This happens only with streaming sources such as SRT.
     muxer = ~w(
       -muxpreload 0
       -muxdelay 0
@@ -204,55 +234,76 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
     command =
       ~w(
-          ffmpeg -y -hide_banner -loglevel error
+          #{System.find_executable("ffmpeg")} -y -hide_banner -loglevel warning
         ) ++
         text_selectors ++
-        ~w(-i -) ++
+        ~w(-i #{state.ffmpeg_input_path}) ++
         filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer ++ text_outputs
 
     Membrane.Logger.info("ffmpeg[transcoder]: #{Enum.join(command, " ")}")
-    {:ok, ffmpeg} = Exile.Process.start_link(command, stderr: :consume)
 
-    parent = self()
+    {:ok, pid, ospid} =
+      :exec.run(
+        command,
+        [
+          :stdin,
+          {:stderr,
+           fn _, _, payload ->
+             payload
+             |> String.split("\n")
+             |> Enum.map(&String.trim/1)
+             |> Enum.filter(fn x -> x != "" end)
+             |> Enum.each(fn x -> Membrane.Logger.warning("ffmpeg[transcoder]: #{x}") end)
+           end},
+          {:stdout, self()},
+          :monitor,
+          {:kill, "kill -s TERM ${CHILD_PID}"},
+          {:kill_timeout, 5}
+        ]
+      )
 
-    task =
-      Task.Supervisor.async_nolink(Membrane.FFmpeg.Transcoder.TaskSupervisor, fn ->
-        :ok = Exile.Process.change_pipe_owner(ffmpeg, :stdout, self())
-        :ok = Exile.Process.change_pipe_owner(ffmpeg, :stderr, self())
-        ref = Process.monitor(parent)
-        read_loop(ffmpeg, parent, ref)
-      end)
+    Membrane.Logger.info("ffmpeg[transcoder]: pid=#{inspect(pid)}, ospid=#{inspect(ospid)}")
 
-    {[], %{state | ffmpeg: ffmpeg, read_ref: task.ref, text_ports: text_ports}}
+    state = %{state | ffmpeg: %{pid: pid, ospid: ospid}, text_ports: text_ports}
+
+    text_formats =
+      ctx
+      |> text_pads()
+      |> Enum.map(&{:stream_format, {&1, %Membrane.RemoteStream{}}})
+
+    {[{:stream_format, {:ts, %Membrane.RemoteStream{}}} | text_formats], state}
   end
 
   @impl true
-  def handle_buffer(:input, buffer, _ctx, state) do
-    case Exile.Process.write(state.ffmpeg, buffer.payload) do
-      :ok ->
-        {[], state}
+  def handle_buffer(_pad, buffer, _ctx, state = %{ffmpeg: nil}) do
+    Membrane.Logger.warning(
+      "ffmpeg[transcoder]: dropping #{length(buffer.paylad)} bytes as ffmpeg is not running"
+    )
 
-      # TODO: We should ignore this error as it means that ffmpeg has already exited.
-      # Having this error hides the actual error message.
-      # But right now its helping us to bring down the element in a "clean" way.
-      # {:error, :epipe} ->
-      #   {[], state}
-
-      {:error, reason} ->
-        raise FFmpegError, "unable to write buffer: #{inspect(reason)}"
-    end
+    {[], state}
   end
 
-  @impl true
-  def handle_end_of_stream(:input, _ctx, state) do
-    # We're not the owners of stdout, so ffmpeg will have its
-    # chance to deliver all its data anyway.
-    :ok = Exile.Process.close_stdin(state.ffmpeg)
+  def handle_buffer(_pad, buffer, _ctx, state) do
+    :ok = :exec.send(state.ffmpeg.ospid, buffer.payload)
     {[], state}
   end
 
   @impl true
-  def handle_info({:exile, {:data, {:stdout, payload}}}, _ctx, state) do
+  def handle_end_of_stream(_pad, _ctx, state = %{ffmpeg: nil}) do
+    {[forward: :end_of_stream], state}
+  end
+
+  def handle_end_of_stream(_pad, _ctx, state = %{closing: true}) do
+    {[], state}
+  end
+
+  def handle_end_of_stream(_pad, _ctx, state) do
+    # Wait for the DOWN message before sending this one out.
+    {[], close_ffmpeg(state)}
+  end
+
+  @impl true
+  def handle_info({:stdout, ospid, payload}, _ctx, state = %{ffmpeg: %{ospid: ospid}}) do
     {[buffer: {:ts, %Membrane.Buffer{payload: payload}}], state}
   end
 
@@ -262,23 +313,24 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     {[buffer: {pad, %Membrane.Buffer{payload: payload}}], state}
   end
 
-  def handle_info({:exile, {:data, {:stderr, payload}}}, _ctx, state) do
-    payload
-    |> String.split("\n")
-    |> Enum.map(&String.trim/1)
-    |> Enum.filter(fn x -> x != "" end)
-    |> Enum.each(fn x -> Membrane.Logger.warning("ffmpeg[transcoder]: #{x}") end)
+  def handle_info(
+        {:DOWN, ospid, :process, _pid, reason},
+        ctx,
+        state = %{ffmpeg: %{ospid: ospid}}
+      ) do
+    reason =
+      case reason do
+        :normal ->
+          :normal
 
-    {[], state}
-  end
+        {:status, status} ->
+          :exec.status(status)
 
-  def handle_info({ref, _resp}, _ctx, state = %{read_ref: ref}) do
-    {[], state}
-  end
+        {:exit_status, code} ->
+          {:status, code}
+      end
 
-  def handle_info({:DOWN, ref, :process, _pid, :normal}, ctx, state = %{read_ref: ref}) do
-    {:ok, status} = Exile.Process.await_exit(state.ffmpeg)
-    Membrane.Logger.info("ffmpeg[transcoder]: exited with status: #{status}")
+    Membrane.Logger.info("ffmpeg[transcoder]: exited with reason: #{inspect(reason)}")
 
     state.text_ports
     |> Enum.each(fn {port, %{fifo: fifo}} ->
@@ -286,47 +338,21 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       File.rm(fifo)
     end)
 
-    text_eos =
-      ctx
-      |> text_pads()
-      |> Enum.map(&{:end_of_stream, &1})
+    if state.closing or reason == :normal do
+      text_eos =
+        ctx
+        |> text_pads()
+        |> Enum.map(&{:end_of_stream, &1})
 
-    {[{:end_of_stream, :ts} | text_eos], clear(state)}
-  end
-
-  def handle_info({:DOWN, ref, :process, _pid, {reason, _stacktrace}}, _ctx, %{read_ref: ref}) do
-    raise reason
-  end
-
-  def handle_info({:DOWN, ref, :process, _pid, other}, _ctx, %{read_ref: ref}) do
-    raise FFmpegError, other
-  end
-
-  def handle_info(_, _ctx, state) do
-    {[], state}
-  end
-
-  defp read_loop(p, parent, monitor_ref) do
-    case Exile.Process.read_any(p) do
-      {:ok, data} ->
-        send(parent, {:exile, {:data, data}})
-        read_loop(p, parent, monitor_ref)
-
-      :eof ->
-        :ok
-
-      {:error, reason} ->
-        raise FFmpegError, reason
-
-      {:DOWN, ^monitor_ref, :process, _object, reason} ->
-        raise FFmpegError, reason
+      {[{:end_of_stream, :ts} | text_eos], put_in(state, [:ffmpeg], nil)}
+    else
+      raise FFmpegError, "FFmpeg terminated before EOS: #{inspect(reason)}"
     end
   end
 
-  defp clear(state) do
-    state
-    |> put_in([:read_ref], nil)
-    |> put_in([:ffmpeg], nil)
+  def handle_info(msg, _ctx, state) do
+    Membrane.Logger.debug("Unhandled message received: #{inspect(msg)}")
+    {[], state}
   end
 
   defp text_pads(ctx) do
@@ -342,5 +368,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     _ = File.rm(path)
     {_, 0} = System.cmd("mkfifo", [path])
     path
+  end
+
+  defp close_ffmpeg(state) do
+    :exec.send(state.ffmpeg.ospid, :eof)
+    put_in(state, [:closing], true)
   end
 end

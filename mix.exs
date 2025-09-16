@@ -49,7 +49,7 @@ defmodule MembraneFFmpegTranscoder.MixProject do
       {:kim_subtitle, "~> 0.1.2"},
 
       #
-      {:exile, "~> 0.11.0"},
+      {:erlexec, "~> 2.0"},
 
       #
       {:membrane_file_plugin, ">= 0.0.0", only: :test},
