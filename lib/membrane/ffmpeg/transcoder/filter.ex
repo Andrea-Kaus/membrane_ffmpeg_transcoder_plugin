@@ -339,7 +339,8 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
           {:status, code}
       end
 
-    Membrane.Logger.info("ffmpeg[transcoder]: exited with reason: #{inspect(reason)}")
+    level = if state.closing or reason == :normal, do: :info, else: :error
+    Membrane.Logger.log(level, "ffmpeg[transcoder]: exited with reason: #{inspect(reason)}")
 
     state.text_ports
     |> Enum.each(fn {port, %{fifo: fifo}} ->
@@ -347,11 +348,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       File.rm(fifo)
     end)
 
-    if state.closing or reason == :normal do
-      forward_end_of_stream(ctx, state)
-    else
-      raise FFmpegError, "FFmpeg terminated before EOS: #{inspect(reason)}"
-    end
+    forward_end_of_stream(ctx, state)
   end
 
   def handle_info(msg, _ctx, state) do
