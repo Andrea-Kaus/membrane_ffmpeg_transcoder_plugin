@@ -19,7 +19,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   end
 
   def_input_pad(:input,
-    availability: :on_request,
+    availability: :always,
     accepted_format: Membrane.RemoteStream
   )
 
@@ -43,46 +43,15 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     ]
   )
 
-  def_options(
-    input_path: [
-      spec: String.t(),
-      default: "-",
-      description: """
-      Transcoder's input path. If - is specified or the input pad is attached, buffers will be read
-      from there (ignoring the option).
-      """
-    ]
-  )
-
   @impl true
-  def handle_init(_ctx, opts) do
+  def handle_init(_ctx, _opts) do
     {[],
      %{
        ffmpeg: nil,
        closing: false,
-       ffmpeg_input_path: opts.input_path,
-       reads_from_stdin: false,
        outputs: %{video: [], audio: []},
        text_ports: %{}
      }}
-  end
-
-  @impl true
-  def handle_pad_added({Membrane.Pad, :input, _ref}, _ctx, state = %{reads_from_stdin: false}) do
-    state =
-      state
-      |> put_in([:ffmpeg_input_path], "-")
-      |> put_in([:reads_from_stdin], true)
-
-    {[], state}
-  end
-
-  def handle_pad_added({Membrane.Pad, :input, _ref}, _ctx, _state) do
-    raise "Transcoder does not support multiple input sources"
-  end
-
-  def handle_pad_added(_pad, _ctx, state) do
-    {[], state}
   end
 
   @impl true
@@ -100,19 +69,6 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
   def handle_parent_notification({:stream_added, {type, sid}, opts}, _ctx, state) do
     {[], update_in(state, [:outputs, type], fn acc -> acc ++ [{sid, opts}] end)}
-  end
-
-  def handle_parent_notification(:close, ctx, state) do
-    Membrane.Logger.info("Close notification received: stopping FFmpeg")
-    # In case ffmpeg is reading some input, it is not enough to just send the eof
-    # message to its STDIN
-    if state.ffmpeg != nil do
-      state = close_ffmpeg(state)
-      :ok = :exec.stop(state.ffmpeg.ospid)
-      {[], state}
-    else
-      forward_end_of_stream(ctx, state)
-    end
   end
 
   @impl true
@@ -242,11 +198,9 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     )
 
     command =
-      ~w(
-          #{System.find_executable("ffmpeg")} -y -hide_banner -loglevel warning
-        ) ++
+      ~w(#{System.find_executable("ffmpeg")} -y -hide_banner -loglevel warning) ++
         text_selectors ++
-        ~w(-i #{state.ffmpeg_input_path}) ++
+        ~w(-i -) ++
         filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer ++ text_outputs
 
     Membrane.Logger.info("ffmpeg[transcoder]: #{Enum.join(command, " ")}")
@@ -271,7 +225,17 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         ]
       )
 
-    Membrane.Logger.info("ffmpeg[transcoder]: pid=#{inspect(pid)}, ospid=#{inspect(ospid)}")
+    Membrane.Logger.info(
+      "ffmpeg[transcoder]: ffmpeg started: pid=#{inspect(pid)}, ospid=#{inspect(ospid)}"
+    )
+
+    Membrane.ResourceGuard.register(ctx.resource_guard, fn ->
+      Membrane.Logger.info(
+        "ffmpeg[transcoder]: resource guard called, closing ffmpeg: pid=#{inspect(pid)}, ospid=#{inspect(ospid)}"
+      )
+
+      :exec.stop(ospid)
+    end)
 
     state = %{state | ffmpeg: %{pid: pid, ospid: ospid}, text_ports: text_ports}
 
@@ -302,11 +266,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     forward_end_of_stream(ctx, state)
   end
 
-  def handle_end_of_stream(_pad, _ctx, state = %{closing: true}) do
-    {[], state}
-  end
-
-  def handle_end_of_stream(_pad, _ctx, state) do
+  def handle_end_of_stream(_pad, _ctx, state = %{closing: false}) do
     # Wait for the DOWN message before sending this one out.
     {[], close_ffmpeg(state)}
   end
