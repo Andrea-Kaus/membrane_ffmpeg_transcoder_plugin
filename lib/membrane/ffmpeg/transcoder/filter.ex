@@ -234,7 +234,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         "ffmpeg[transcoder]: resource guard called, closing ffmpeg: pid=#{inspect(pid)}, ospid=#{inspect(ospid)}"
       )
 
-      :exec.stop(ospid)
+      :exec.stop_and_wait(ospid, 5_000)
     end)
 
     state = %{state | ffmpeg: %{pid: pid, ospid: ospid}, text_ports: text_ports}
