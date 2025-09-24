@@ -250,7 +250,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
   @impl true
   def handle_buffer(_pad, buffer, _ctx, state = %{ffmpeg: nil}) do
     Membrane.Logger.warning(
-      "ffmpeg[transcoder]: dropping #{length(buffer.paylad)} bytes as ffmpeg is not running"
+      "ffmpeg[transcoder]: dropping #{length(buffer.payload)} bytes as ffmpeg is not running"
     )
 
     {[], state}
