@@ -1,7 +1,7 @@
 # Membrane.FFmpeg.Transcoder
 ![Hex.pm Version](https://img.shields.io/hexpm/v/membrane_ffmpeg_transcoder_plugin)
 
-Membrane plugin to transcode video into different qualities using FFmpeg and Exile.
+Membrane plugin to transcode video into different qualities using FFmpeg.
 
 ## Requirements
 - ffmpeg

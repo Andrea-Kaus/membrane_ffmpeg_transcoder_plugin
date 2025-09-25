@@ -1,4 +1,4 @@
-defmodule MembraneFFmpegTranscoder.MixProject do
+defmodule Membrane.FFmpeg.Transcoder.MixProject do
   use Mix.Project
 
   @github_url "https://github.com/kim-company/membrane_ffmpeg_transcoder_plugin"
@@ -28,7 +28,7 @@ defmodule MembraneFFmpegTranscoder.MixProject do
 
   defp description do
     """
-    Membrane plugin to transcode audio and video into different qualities using FFmpeg and Exile.
+    Membrane plugin to transcode audio and video into different qualities using FFmpeg
     """
   end
 
