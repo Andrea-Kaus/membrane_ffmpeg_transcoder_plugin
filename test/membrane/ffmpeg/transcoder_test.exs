@@ -94,6 +94,53 @@ defmodule Membrane.FFmpeg.TranscoderTest do
   end
 
   @tag :tmp_dir
+  test "extracts scte35 markers", %{tmp_dir: tmp_dir} do
+    spec = [
+      child(:source, %Membrane.File.Source{
+        location: "test/data/scte35-test.ts"
+      })
+      |> child(:transcoder, Membrane.FFmpeg.Transcoder)
+      |> via_out(:video, options: [copy: true])
+      |> child({:sink, :video}, %Membrane.File.Sink{location: "#{tmp_dir}/video.h264"}),
+      get_child(:transcoder)
+      |> via_out(:audio, options: [copy: true])
+      |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
+      get_child(:transcoder)
+      |> via_out(:scte, options: [pid: 0x100])
+      |> child({:sink, :scte}, %Membrane.Testing.Sink{})
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+    assert_end_of_stream(pid, {:sink, :video}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :audio}, :input, 3_000)
+    assert_end_of_stream(pid, {:sink, :scte}, :input, 3_000)
+
+    assert_sink_buffer(
+      pid,
+      {:sink, :scte},
+      %Membrane.Buffer{
+        payload:
+          <<0, 252, 48, 32, 0, 0, 0, 0, 0, 0, 0, 255, 240, 15, 5, 0, 0, 0, 100, 127, 79, 254, 0,
+            164, 203, 128, 0, 1, 18, 255, 0, 0, 108, 20, 127, 68>>,
+        pts: 113_509_333_333
+      },
+      5_000
+    )
+
+    assert_sink_buffer(
+      pid,
+      {:sink, :scte},
+      %Membrane.Buffer{
+        payload:
+          <<0, 252, 48, 37, 0, 0, 0, 0, 0, 0, 0, 255, 240, 20, 5, 0, 0, 0, 101, 127, 239, 254, 0,
+            247, 49, 64, 126, 0, 82, 101, 192, 0, 1, 18, 255, 0, 0, 128, 127, 254, 130>>,
+        pts: 173_349_333_333
+      },
+      5_000
+    )
+  end
+
+  @tag :tmp_dir
   test "extracts teletext subtitles", %{tmp_dir: tmp_dir} do
     spec = [
       child(:source, %Membrane.File.Source{

@@ -49,7 +49,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
      %{
        ffmpeg: nil,
        closing: false,
-       outputs: %{video: [], audio: []},
+       outputs: %{video: [], audio: [], scte: []},
        text_ports: %{}
      }}
   end
@@ -83,6 +83,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       state.outputs.audio
       |> Enum.with_index(0)
 
+    scte_outputs =
+      state.outputs.scte
+      |> Enum.with_index(0)
+
     filtercomplex =
       if length(video_outputs_no_copy) > 0 do
         video_outputs = video_outputs_no_copy
@@ -112,7 +116,10 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
           ~w(-map [v#{index}out])
         end
       end) ++
-        Enum.flat_map(audio_outputs, fn _ -> ~w(-map 0:a) end)
+        Enum.flat_map(audio_outputs, fn _ -> ~w(-map 0:a) end) ++
+        Enum.flat_map(scte_outputs, fn {{_sid, opts}, _index} ->
+          ~w(-map i:#{opts[:pid]})
+        end)
 
     vcodec =
       Enum.flat_map(video_outputs, fn {{_sid, opts}, index} ->
@@ -161,7 +168,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       end)
 
     sid_mapping =
-      (state.outputs.video ++ state.outputs.audio)
+      (state.outputs.video ++ state.outputs.audio ++ state.outputs.scte)
       |> Enum.with_index()
       |> Enum.flat_map(fn {{sid, _}, index} ->
         ~w(-streamid #{index}:#{sid})

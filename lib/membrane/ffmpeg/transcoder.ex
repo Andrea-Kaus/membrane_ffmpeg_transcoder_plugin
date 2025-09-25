@@ -115,6 +115,17 @@ defmodule Membrane.FFmpeg.Transcoder do
     ]
   )
 
+  def_output_pad(:scte,
+    accepted_format: Membrane.RemoteStream,
+    availability: :on_request,
+    options: [
+      pid: [
+        spec: pos_integer(),
+        description: "PID of the SCTE stream."
+      ]
+    ]
+  )
+
   @impl true
   def handle_init(_ctx, _opts) do
     spec = [
