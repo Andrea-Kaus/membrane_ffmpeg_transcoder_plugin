@@ -14,7 +14,7 @@ defmodule Membrane.FFmpeg.Transcoder do
 
   # FFmpeg always puts the first MPEGTS stream at this index,
   # the other ones follow.
-  @mpeg_ts_sid_index_offset 256
+  @mpeg_ts_pid_base_offset 256
 
   def_input_pad(:input,
     availability: :always,
@@ -128,32 +128,10 @@ defmodule Membrane.FFmpeg.Transcoder do
       |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
     ]
 
-    {[spec: spec], %{sid_to_pad: %{}, pmt_received: false}}
+    {[spec: spec], %{pid_offset: @mpeg_ts_pid_base_offset}}
   end
 
   @impl true
-  def handle_element_end_of_stream(:demuxer, _pad, _ctx, state) when not state.pmt_received do
-    # It means adapters are not connected to the demuxer and hence will not forward
-    # the end_of_stream message to the bin's output pads.
-    actions =
-      state.sid_to_pad
-      |> Enum.map(fn {sid, _pad} -> {:funnel, sid} end)
-      |> Enum.map(fn child -> {:notify_child, {child, :close}} end)
-
-    {actions, state}
-  end
-
-  def handle_element_end_of_stream(_child, _pad, _ctx, state) do
-    {[], state}
-  end
-
-  @impl true
-  def handle_pad_added(_pad, ctx, _state) when ctx.playback == :playing,
-    do:
-      raise(
-        "New pads can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
-      )
-
   def handle_pad_added(Pad.ref(:text, ref) = pad, ctx, state) do
     spec = [
       get_child(:transcoder)
@@ -166,53 +144,17 @@ defmodule Membrane.FFmpeg.Transcoder do
   end
 
   def handle_pad_added(pad, ctx, state) do
-    sid = Enum.count(state.sid_to_pad) + @mpeg_ts_sid_index_offset
+    {pid, state} = get_and_update_in(state, [:pid_offset], fn old -> {old, old + 1} end)
 
     spec = [
-      # Pad needs to be attached straight away. We use a funnel to allow the
-      # playlist to go to playing state, so we can let the demuxer find the pmt
-      # table and connect the everything.
-      child({:funnel, sid}, Transcoder.Adapter)
+      get_child(:demuxer)
+      |> via_out(:output, options: [pid: pid])
       |> bin_output(pad)
     ]
 
-    actions =
-      [
-        spec: spec,
-        notify_child: {:transcoder, {:stream_added, {Pad.name_by_ref(pad), sid}, ctx.pad_options}}
-      ]
-
-    state = put_in(state, [:sid_to_pad, sid], pad)
-    {actions, state}
-  end
-
-  @impl true
-  def handle_child_notification(
-        {:mpeg_ts_pmt, pmt = %MPEG.TS.PMT{streams: streams}},
-        :demuxer,
-        _ctx,
-        state
-      ) do
-    Membrane.Logger.debug("PMT table received: #{inspect(pmt)}")
-    # We expect a stream in the PMT for each pad attached.
-    actions =
-      state.sid_to_pad
-      |> Enum.flat_map(fn {sid, _pad} ->
-        info = Map.fetch!(streams, sid)
-
-        spec = [
-          get_child(:demuxer)
-          |> via_out(Pad.ref(:output, {:stream_id, sid}))
-          |> get_child({:funnel, sid})
-        ]
-
-        [
-          {:notify_child,
-           {{:funnel, sid}, {:stream_format, %Membrane.RemoteStream{content_format: info}}}},
-          {:spec, spec}
-        ]
-      end)
-
-    {actions, put_in(state, [:pmt_received], true)}
+    {[
+       spec: spec,
+       notify_child: {:transcoder, {:stream_added, {Pad.name_by_ref(pad), pid}, ctx.pad_options}}
+     ], state}
   end
 end
