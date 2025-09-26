@@ -118,7 +118,11 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
       end) ++
         Enum.flat_map(audio_outputs, fn _ -> ~w(-map 0:a) end) ++
         Enum.flat_map(scte_outputs, fn {{_sid, opts}, _index} ->
-          ~w(-map i:#{opts[:pid]})
+          if opts[:pid] do
+            ~w(-map i:#{opts[:pid]})
+          else
+            ~w(-map 0:d:0)
+          end
         end)
 
     vcodec =
