@@ -200,6 +200,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     muxer = ~w(
       -muxpreload 0
       -muxdelay 0
+      -mpegts_copyts 1
       -f mpegts
       -
     )
@@ -207,7 +208,7 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
     command =
       ~w(#{System.find_executable("ffmpeg")} -y -hide_banner -loglevel warning) ++
         text_selectors ++
-        ~w(-i -) ++
+        ~w(-i - -copyts) ++
         filtercomplex ++ mappings ++ vcodec ++ acodec ++ sid_mapping ++ muxer ++ text_outputs
 
     Membrane.Logger.info("ffmpeg[transcoder]: #{Enum.join(command, " ")}")

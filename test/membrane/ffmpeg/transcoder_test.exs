@@ -167,7 +167,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
       {:sink, :text},
       %Membrane.Buffer{
         payload: "♪ Mit Zucker lacht das Leben ♪",
-        pts: 942_000_000
+        pts: 2_342_000_000
       },
       5_000
     )
@@ -177,7 +177,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
       {:sink, :text},
       %Membrane.Buffer{
         payload: "Alte Werbespots stellen Zucker\nals Kraftspender dar.",
-        pts: 3_442_000_000
+        pts: 4_842_000_000
       },
       5_000
     )
@@ -187,7 +187,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
       {:sink, :text},
       %Membrane.Buffer{
         payload: "Auch in den 70ern\nist sein Ruf noch gut.",
-        pts: 8_342_000_000
+        pts: 9_742_000_000
       },
       5_000
     )
