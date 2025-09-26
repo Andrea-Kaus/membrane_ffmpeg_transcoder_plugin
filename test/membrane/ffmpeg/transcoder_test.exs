@@ -106,7 +106,7 @@ defmodule Membrane.FFmpeg.TranscoderTest do
       |> via_out(:audio, options: [copy: true])
       |> child({:sink, :audio}, %Membrane.File.Sink{location: "#{tmp_dir}/audio.aac"}),
       get_child(:transcoder)
-      |> via_out(:scte, options: [pid: 0x100])
+      |> via_out(:scte, options: [])
       |> child({:sink, :scte}, %Membrane.Testing.Sink{})
     ]
 

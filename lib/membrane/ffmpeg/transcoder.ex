@@ -120,8 +120,9 @@ defmodule Membrane.FFmpeg.Transcoder do
     availability: :on_request,
     options: [
       pid: [
+        default: nil,
         spec: pos_integer(),
-        description: "PID of the SCTE stream."
+        description: "PID of the SCTE stream. When `nil` it grabs the first stream."
       ]
     ]
   )
