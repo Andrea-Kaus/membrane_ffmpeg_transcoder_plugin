@@ -189,6 +189,16 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
         # erlexec here as well? Ports are leaked this way apparently.
         port = Port.open({:spawn, "cat #{fifo}"}, [:binary])
 
+        Membrane.ResourceGuard.register(ctx.resource_guard, fn ->
+          try do
+            Port.close(port)
+          rescue
+            _e -> :ok
+          after
+            File.rm(fifo)
+          end
+        end)
+
         selector =
           case ctx.pads[pad].options.source do
             {:dvb_teletext, page_number} ->
@@ -313,12 +323,6 @@ defmodule Membrane.FFmpeg.Transcoder.Filter do
 
     level = if state.closing or reason == :normal, do: :info, else: :error
     Membrane.Logger.log(level, "ffmpeg[transcoder]: exited with reason: #{inspect(reason)}")
-
-    state.text_ports
-    |> Enum.each(fn {port, %{fifo: fifo}} ->
-      send(port, {self(), :close})
-      File.rm(fifo)
-    end)
 
     forward_end_of_stream(ctx, state)
   end
